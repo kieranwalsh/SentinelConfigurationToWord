@@ -2,14 +2,16 @@
 <#
     .SYNOPSIS
         This command will generate a Word document containing the information about all the Azure Sentinel
-        Solutions.  
+        Solutions.
     .DESCRIPTION
-       This command will generate a Word document containing the information about all the Azure Sentinel
-        Solutions.  
+    This command will generate a Word document containing the information about all the Azure Sentinel
+        Solutions.
     .PARAMETER WorkspaceName
-        Enter the workspace name to use. 
+        Enter the workspace name to use.
     .PARAMETER ResourceGroupName
-        Enter the Resource Group name to use.  
+        Enter the Resource Group name to use.
+    .PARAMETER $SubscriptionId
+        Enter the $SubscriptionId to use. Not compulsory as the script will use your default subscription if not listed.
     .PARAMETER FileName
         Enter the file name to use.  Defaults to "MicrosoftSentinelSolutions.docx"  ".docx" will be appended to all filenames if needed
     .NOTES
@@ -21,59 +23,64 @@
     .EXAMPLE
         Export-AzSentinelSolutionsToWord -WorkspaceName testwg -ResourceGroupName rgName -fileName "test"
         In this example you will get the file named "test.docx" generated containing all configuration for the Sentinel instance
-   
 #>
 
 [CmdletBinding()]
 param (
     [Parameter(Mandatory = $true)]
-    [string]$WorkSpaceName ,
+    [string]$WorkSpaceName,
 
     [Parameter(Mandatory = $true)]
     [string]$ResourceGroupName,
 
-    [string]$FileName = "MicrosoftSentinelReport.docx"
+    [Parameter(Mandatory = $false)]
+    [string]$SubscriptionId,
+
+    [string]$FileName = 'Microsoft Sentinel Report.docx'
 )
 
-Function Export-AzSentinelConfigurationToWord($fileName) {
-
+Function Export-AzSentinelConfigurationToWord($fileName)
+{
     #Setup the Authentication header needed for the REST calls
     $context = Get-AzContext
     $myProfile = [Microsoft.Azure.Commands.Common.Authentication.Abstractions.AzureRmProfileProvider]::Instance.Profile
     $profileClient = New-Object -TypeName Microsoft.Azure.Commands.ResourceManager.Common.RMProfileClient -ArgumentList ($myProfile)
     $token = $profileClient.AcquireAccessToken($context.Subscription.TenantId)
     $authHeader = @{
-        'Content-Type'  = 'application/json' 
-        'Authorization' = 'Bearer ' + $token.AccessToken 
+        'Content-Type'  = 'application/json'
+        'Authorization' = 'Bearer ' + $token.AccessToken
     }
-    $SubscriptionId = (Get-AzContext).Subscription.Id
+    if(-not($SubscriptionId))
+    {
+        $SubscriptionId = (Get-AzContext).Subscription.Id
+    }
     $baseUrl = "https://management.azure.com/subscriptions/$SubscriptionId/resourceGroups/$resourceGroupName/providers/Microsoft.OperationalInsights/workspaces/$workspaceName/providers/Microsoft.SecurityInsights/"
-    $apiVersion = "?api-version=2023-09-01-preview"
+    $apiVersion = '?api-version=2023-09-01-preview'
     #$WorkspaceID = (Get-AzOperationalInsightsWorkspace -Name $workspaceName -ResourceGroupName $resourceGroupName).CustomerID
-        
 
-    try {
+    try
+    {
 
         #Load the list of all  solutions
-        $url = $baseUrl + "contentProductPackages" + $apiVersion
-        $allSolutions = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
+        $url = $baseUrl + 'contentProductPackages' + $apiVersion
+        $allSolutions = (Invoke-RestMethod -Method 'Get' -Uri $url -Headers $authHeader ).value
         $solutions = $allSolutions | Where-Object { $null -ne $_.properties.installedVersion }
 
         #Load the list of all the templates
-        $url = $baseUrl + "contentProductTemplates" + $apiVersion
-        $solutionTemplates = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
+        $url = $baseUrl + 'contentProductTemplates' + $apiVersion
+        $solutionTemplates = (Invoke-RestMethod -Method 'Get' -Uri $url -Headers $authHeader ).value
 
         #Load the list of the installed templates
-        $url = $baseUrl + "contentTemplates" + $apiVersion
-        $installedTemplates = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
+        $url = $baseUrl + 'contentTemplates' + $apiVersion
+        $installedTemplates = (Invoke-RestMethod -Method 'Get' -Uri $url -Headers $authHeader ).value
 
         #Load all the metadata entries
-        $url = $baseUrl + "metadata" + $apiVersion
-        $metadata = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
+        $url = $baseUrl + 'metadata' + $apiVersion
+        $metadata = (Invoke-RestMethod -Method 'Get' -Uri $url -Headers $authHeader ).value
 
         #Load all the metadata entries
-        $url = $baseUrl + "alertrules" + $apiVersion
-        $alertRules = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
+        $url = $baseUrl + 'alertrules' + $apiVersion
+        $alertRules = (Invoke-RestMethod -Method 'Get' -Uri $url -Headers $authHeader ).value
 
 
         #Setup Word
@@ -86,7 +93,7 @@ Function Export-AzSentinelConfigurationToWord($fileName) {
         Add-TitlePage $selection
         $selection.InsertBreak(7)   #page break
 
-        #Leaving the creation of the TOC here so we can update it at the end 
+        #Leaving the creation of the TOC here so we can update it at the end
         #Tables of Contents.  Will need to update when everything else is added
         $range = $selection.Range
         #Note that you need to reference tableSofcontents (Note the "S" in tables, rather than tableofcontents)
@@ -96,13 +103,13 @@ Function Export-AzSentinelConfigurationToWord($fileName) {
         $selection.InsertBreak(7)   #page break
 
         #Add all the solutions
-        Add-AllSolutions $solutions $installedTemplates $selection 
+        Add-AllSolutions $solutions $installedTemplates $selection
         $selection.InsertBreak(7)   #page break
 
         #The REST API to get the templates will only show those templates that were installed using the solution
         #installation.  If they were created prior to moving to the solution model, they don't show up so we need to look
         #at the intalled solutions.
-        Add-AllWorkbooks $solutions $solutionTemplates $metadata $selection 
+        Add-AllWorkbooks $solutions $solutionTemplates $metadata $selection
         $selection.InsertBreak(7)   #page break
 
         #Add all the Hunts that have been created
@@ -145,7 +152,8 @@ Function Export-AzSentinelConfigurationToWord($fileName) {
         #NOTE:  If for some reason the Powershell quits before it can quit work, go into task manager
         #to close manually, otherwise you can get some weird results
     }
-    catch {
+    catch
+    {
         $errorReturn = $_
         Write-Error $errorReturn
         $doc.Close()
@@ -153,228 +161,276 @@ Function Export-AzSentinelConfigurationToWord($fileName) {
     }
 }
 
-Function Add-AllSettings ($selection) {
-    $selection.Style = "Heading 1"
-    $selection.TypeText("Settings")
+Function Add-AllSettings ($selection)
+{
+    $selection.Style = 'Heading 1'
+    $selection.TypeText('Settings')
     $selection.TypeParagraph()
 
-    Write-Host "Settings: " -NoNewline
+    Write-Host 'Settings: ' -NoNewline
 
-    $url = $baseUrl + "settings" + $apiVersion
-    $settings = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
+    $url = $baseUrl + 'settings' + $apiVersion
+    $settings = (Invoke-RestMethod -Method 'Get' -Uri $url -Headers $authHeader ).value
 
-    $selection.Style = "Heading 2"
-    $selection.TypeText("User Entity Behavior Analytics")
+    $selection.Style = 'Heading 2'
+    $selection.TypeText('User Entity Behavior Analytics')
     $selection.TypeParagraph()
-    $selection.TypeText("Enabled: ")
-    $entityAnalytics = $settings | Where-Object -Property Name -eq "EntityAnalytics"
-    if ($null -ne $entityAnalytics) {
-        $selection.TypeText("True")
+    $selection.TypeText('Enabled: ')
+    $entityAnalytics = $settings | Where-Object -Property Name -EQ 'EntityAnalytics'
+    if ($null -ne $entityAnalytics)
+    {
+        $selection.TypeText('True')
         $selection.TypeParagraph()
-        $selection.TypeText("Directory services:")
+        $selection.TypeText('Directory services:')
         $selection.TypeParagraph()
-        foreach ($entityProvider in $entityAnalytics.properties.entityProviders) {
+        foreach ($entityProvider in $entityAnalytics.properties.entityProviders)
+        {
             $text = TranslateServices $entityProvider
             $selection.TypeText("`t" + $text)
             $selection.TypeParagraph()
         }
         $selection.TypeParagraph()
-        $euba = $settings | Where-Object -Property Name -eq "Ueba"
-        $selection.TypeText("Directory sources:")
+        $euba = $settings | Where-Object -Property Name -EQ 'Ueba'
+        $selection.TypeText('Directory sources:')
         $selection.TypeParagraph()
-        foreach ($dataSource in $euba.properties.dataSources) {
+        foreach ($dataSource in $euba.properties.dataSources)
+        {
             $text = TranslateServices $dataSource
             $selection.TypeText("`t" + $text)
             $selection.TypeParagraph()
         }
     }
-    else {
-        $selection.TypeText("False")
+    else
+    {
+        $selection.TypeText('False')
     }
     $selection.TypeParagraph()
 
-    $selection.Style = "Heading 2"
-    $selection.TypeText("Anomalies")
+    $selection.Style = 'Heading 2'
+    $selection.TypeText('Anomalies')
     $selection.TypeParagraph()
-    $selection.TypeText("Enabled: ")
-    $anomalies = $settings | Where-Object -Property Name -eq "Anomalies"
-    if ($null -ne $anomalies) {
-        $selection.TypeText("True")
+    $selection.TypeText('Enabled: ')
+    $anomalies = $settings | Where-Object -Property Name -EQ 'Anomalies'
+    if ($null -ne $anomalies)
+    {
+        $selection.TypeText('True')
     }
-    else {
-        $selection.TypeText("False")
-    }
-    $selection.TypeParagraph()
-
-    $url = $baseUrl + "workspaceManagerConfigurations" + $apiVersion
-    $settings = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
-
-    $selection.Style = "Heading 2"
-    $selection.TypeText("Is workspace a central workspace?")
-    $selection.TypeParagraph()
-    if ($settings.properties.mode -eq "Enabled") {
-        $selection.TypeText("True")
-    }
-    else {
-        $selection.TypeText("False")
+    else
+    {
+        $selection.TypeText('False')
     }
     $selection.TypeParagraph()
 
-    $selection.Style = "Heading 2"
-    $selection.TypeText("Allow Microsoft Sentinel engineers to access your data?")
+    $url = $baseUrl + 'workspaceManagerConfigurations' + $apiVersion
+    $settings = (Invoke-RestMethod -Method 'Get' -Uri $url -Headers $authHeader ).value
+
+    $selection.Style = 'Heading 2'
+    $selection.TypeText('Is workspace a central workspace?')
     $selection.TypeParagraph()
-    $selection.TypeText("Enabled: ")
-    $anomalies = $settings | Where-Object -Property Name -eq "EyesOn"
-    if ($null -ne $anomalies) {
-        $selection.TypeText("True")
+    if ($settings.properties.mode -eq 'Enabled')
+    {
+        $selection.TypeText('True')
     }
-    else {
-        $selection.TypeText("False")
+    else
+    {
+        $selection.TypeText('False')
+    }
+    $selection.TypeParagraph()
+
+    $selection.Style = 'Heading 2'
+    $selection.TypeText('Allow Microsoft Sentinel engineers to access your data?')
+    $selection.TypeParagraph()
+    $selection.TypeText('Enabled: ')
+    $anomalies = $settings | Where-Object -Property Name -EQ 'EyesOn'
+    if ($null -ne $anomalies)
+    {
+        $selection.TypeText('True')
+    }
+    else
+    {
+        $selection.TypeText('False')
     }
     $selection.TypeParagraph()
 
     #Check to see which Resource Groups are set to run playbooks
-    $selection.Style = "Heading 2"
-    $selection.TypeText("Resource Groups that can run playbooks")
+    $selection.Style = 'Heading 2'
+    $selection.TypeText('Resource Groups that can run playbooks')
     $selection.TypeParagraph()
-    $url = "https://management.azure.com/subscriptions/$SubscriptionId/resourceGroups?api-version=2020-10-01" 
-    $resourceGroups = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
-    foreach ($resourceGroup in $resourceGroups) {
+    $url = "https://management.azure.com/subscriptions/$SubscriptionId/resourceGroups?api-version=2020-10-01"
+    $resourceGroups = (Invoke-RestMethod -Method 'Get' -Uri $url -Headers $authHeader ).value
+    foreach ($resourceGroup in $resourceGroups)
+    {
         $rgName = $resourceGroup.name
         $url = "https://management.azure.com/subscriptions/$subScriptionId/resourceGroups/$rgName/providers/Microsoft.Authorization/" +
         "roleAssignments?api-version=2015-07-01&%24filter=atScope()%20and%20assignedTo('4fae0573-3b67-4b20-98d1-5847c5faa905')"
-        $foundRG = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
-        if ($null -ne $foundRg.properties) {
+        $foundRG = (Invoke-RestMethod -Method 'Get' -Uri $url -Headers $authHeader ).value
+        if ($null -ne $foundRg.properties)
+        {
             $selection.TypeText("`t" + $rgName)
             $selection.TypeParagraph()
         }
     }
 
     #Audit and HEalth monitoring
-    $selection.Style = "Heading 2"
-    $selection.TypeText("Auditing and Health Monitoring")
+    $selection.Style = 'Heading 2'
+    $selection.TypeText('Auditing and Health Monitoring')
     $selection.TypeParagraph()
     $url = "https://management.azure.com/subscriptions/$SubscriptionId/resourceGroups/$resourceGroupName/providers/Microsoft.OperationalInsights/" +
     "workspaces/$workspaceName/providers/Microsoft.SecurityInsights/settings/SentinelHealth/providers/microsoft.insights/diagnosticSettings?api-version=2021-05-01-preview"
-    $audit = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
+    $audit = (Invoke-RestMethod -Method 'Get' -Uri $url -Headers $authHeader ).value
     $auditLogs = $audit.properties.logs
-    $allLogs = $auditLogs | Where-Object -Property categoryGroup -eq "allLogs"
-    if ($null -ne $allLogs) {
+    $allLogs = $auditLogs | Where-Object -Property categoryGroup -EQ 'allLogs'
+    if ($null -ne $allLogs)
+    {
         $selection.TypeText("`tAll Logs")
     }
-    else {
-        foreach ($log in $auditLogs) {
+    else
+    {
+        foreach ($log in $auditLogs)
+        {
             $name = TranslateServices $log.Category
             $selection.TypeText("`t" + $name)
             $selection.TypeParagraph()
         }
     }
     $selection.TypeParagraph()
-    Write-Host "Done"
+    Write-Host 'Done'
 }
 
-Function TranslateServices ($text) {
+Function TranslateServices ($text)
+{
     $returnText = $text
-    switch ($text) {
-        "AzureActiveDirectory" { $returnText = "Azure Active Directory" }
-        "ActiveDirectory" { $returnText = "Active Directory" }
-        "AuditLogs" { $returnText = "Audit Logs" }
-        "AzureActivity" { $returnText = "Azure Activity" }
-        "SecurityEvent" { $returnText = "Security Events" }
-        "SignInLogs" { $returnText = "Sign In Logs" }
-        "DataConnectors" { $returnText = "Data Collection - Connectors" }
+    switch ($text)
+    {
+        'AzureActiveDirectory'
+        {
+            $returnText = 'Azure Active Directory'
+        }
+        'ActiveDirectory'
+        {
+            $returnText = 'Active Directory'
+        }
+        'AuditLogs'
+        {
+            $returnText = 'Audit Logs'
+        }
+        'AzureActivity'
+        {
+            $returnText = 'Azure Activity'
+        }
+        'SecurityEvent'
+        {
+            $returnText = 'Security Events'
+        }
+        'SignInLogs'
+        {
+            $returnText = 'Sign In Logs'
+        }
+        'DataConnectors'
+        {
+            $returnText = 'Data Collection - Connectors'
+        }
     }
     return $returnText
 }
 
-Function Add-AllAutomation ($analyticRules, $selection) {
-    $selection.Style = "Heading 1"
-    $selection.TypeText("Automation Rules")
+Function Add-AllAutomation ($analyticRules, $selection)
+{
+    $selection.Style = 'Heading 1'
+    $selection.TypeText('Automation Rules')
     $selection.TypeParagraph()
 
-    Write-Host "Automation Rules: " -NoNewline
+    Write-Host 'Automation Rules: ' -NoNewline
 
-    $url = $baseUrl + "automationRules" + $apiVersion
-    $automationRules = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
+    $url = $baseUrl + 'automationRules' + $apiVersion
+    $automationRules = (Invoke-RestMethod -Method 'Get' -Uri $url -Headers $authHeader ).value
 
-    $Table = $doc.Tables.add($selection.Range, $automationRules.count + 1, 6) 
+    $Table = $doc.Tables.add($selection.Range, $automationRules.count + 1, 6)
     $Table.cell(1, 1).range.Bold = 1
-    $Table.cell(1, 1).range.text = "Order"
+    $Table.cell(1, 1).range.text = 'Order'
     $Table.cell(1, 2).range.Bold = 1
-    $Table.cell(1, 2).range.text = "Display Name"
+    $Table.cell(1, 2).range.text = 'Display Name'
     $Table.cell(1, 3).range.Bold = 1
-    $Table.cell(1, 3).range.text = "Trigger"
+    $Table.cell(1, 3).range.text = 'Trigger'
     $Table.cell(1, 4).range.Bold = 1
-    $Table.cell(1, 4).range.text = "Analytic Rule Name"
+    $Table.cell(1, 4).range.text = 'Analytic Rule Name'
     $Table.cell(1, 5).range.Bold = 1
-    $Table.cell(1, 5).range.text = "Actions"
+    $Table.cell(1, 5).range.text = 'Actions'
     $Table.cell(1, 6).range.Bold = 1
-    $Table.cell(1, 6).range.text = "Expiration Date"
+    $Table.cell(1, 6).range.text = 'Expiration Date'
 
     $count = 1
-    foreach ($automationRule in $automationRules | Sort-Object { $_.properties.order }) {
+    foreach ($automationRule in $automationRules | Sort-Object { $_.properties.order })
+    {
         $count++
         $Table.cell($count, 1).range.Bold = 0
         $Table.cell($count, 1).range.text = $automationRule.properties.order.toString()
         $Table.cell($count, 2).range.Bold = 0
         $Table.cell($count, 2).range.text = $automationRule.properties.displayName
         $Table.cell($count, 3).range.Bold = 0
-        $trigger = $automationRule.properties.triggeringLogic.triggersOn + " " + $automationRule.properties.triggeringLogic.triggersWhen
+        $trigger = $automationRule.properties.triggeringLogic.triggersOn + ' ' + $automationRule.properties.triggeringLogic.triggersWhen
         $Table.cell($count, 3).range.text = $trigger
         $Table.cell($count, 4).range.Bold = 0
-        if ($automationRule.properties.triggeringLogic.conditions.conditionProperties.propertyName -eq "AlertAnalyticRuleIds") {
-            $ruleNames = ""
-            foreach ($rule in $automationRule.properties.triggeringLogic.conditions.conditionProperties.propertyValues) {
-                $ruleDescription = ($analyticRules | Where-Object -Property Id -eq $rule).properties.displayName
+        if ($automationRule.properties.triggeringLogic.conditions.conditionProperties.propertyName -eq 'AlertAnalyticRuleIds')
+        {
+            $ruleNames = ''
+            foreach ($rule in $automationRule.properties.triggeringLogic.conditions.conditionProperties.propertyValues)
+            {
+                $ruleDescription = ($analyticRules | Where-Object -Property Id -EQ $rule).properties.displayName
                 $ruleNames += $ruleDescription + "`n"
             }
             $Table.cell($count, 4).range.text = $ruleNAmes
         }
-        else {
-            $Table.cell($count, 4).range.text = "All"
+        else
+        {
+            $Table.cell($count, 4).range.text = 'All'
         }
-        Write-Host "." -NoNewline
-        
+        Write-Host '.' -NoNewline
+
         $Table.cell($count, 5).range.Bold = 0
         $Table.cell($count, 5).range.text = $automationRule.properties.displayNAme
         $Table.cell($count, 6).range.Bold = 0
         $expiration = $automationRule.properties.expirationTimeUtc
-        if ($null -eq $expiration) {
-            $Table.cell($count, 6).range.text = "Indefinite"
+        if ($null -eq $expiration)
+        {
+            $Table.cell($count, 6).range.text = 'Indefinite'
         }
-        else {
+        else
+        {
             $Table.cell($count, 6).range.text = $expiration.toString()
         }
     }
     $selection.endKey(6) | Out-Null
     $selection.TypeParagraph()
-    Write-Host ""
+    Write-Host ''
 }
 
-Function Add-AllWatchlists ($selection) {
-    $selection.Style = "Heading 1"
-    $selection.TypeText("Watchlists")
+Function Add-AllWatchlists ($selection)
+{
+    $selection.Style = 'Heading 1'
+    $selection.TypeText('Watchlists')
     $selection.TypeParagraph()
 
-    Write-Host "Watchlists: " -NoNewline
+    Write-Host 'Watchlists: ' -NoNewline
 
-    $url = $baseUrl + "watchlists" + $apiVersion
-    $watchlists = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
+    $url = $baseUrl + 'watchlists' + $apiVersion
+    $watchlists = (Invoke-RestMethod -Method 'Get' -Uri $url -Headers $authHeader ).value
 
-    $Table = $doc.Tables.add($selection.Range, $watchlists.count + 1, 5) 
+    $Table = $doc.Tables.add($selection.Range, $watchlists.count + 1, 5)
     $Table.cell(1, 1).range.Bold = 1
-    $Table.cell(1, 1).range.text = "Name"
+    $Table.cell(1, 1).range.text = 'Name'
     $Table.cell(1, 2).range.Bold = 1
-    $Table.cell(1, 2).range.text = "Alias"
+    $Table.cell(1, 2).range.text = 'Alias'
     $Table.cell(1, 3).range.Bold = 1
-    $Table.cell(1, 3).range.text = "Source"
+    $Table.cell(1, 3).range.text = 'Source'
     $Table.cell(1, 4).range.Bold = 1
-    $Table.cell(1, 4).range.text = "Created Time"
+    $Table.cell(1, 4).range.text = 'Created Time'
     $Table.cell(1, 5).range.Bold = 1
-    $Table.cell(1, 5).range.text = "Last Updated"
+    $Table.cell(1, 5).range.text = 'Last Updated'
 
     $count = 1
-    foreach ($watchlist in $watchlists | Sort-Object { $_.properties.displayName }) {
+    foreach ($watchlist in $watchlists | Sort-Object { $_.properties.displayName })
+    {
         $count++
         $Table.cell($count, 1).range.Bold = 0
         $Table.cell($count, 1).range.text = $watchlist.properties.displayName
@@ -386,38 +442,40 @@ Function Add-AllWatchlists ($selection) {
         $Table.cell($count, 4).range.text = $watchlist.properties.created.toString()
         $Table.cell($count, 5).range.Bold = 0
         $Table.cell($count, 5).range.text = $watchlist.properties.updated.toString()
-        Write-Host "." -NoNewline
+        Write-Host '.' -NoNewline
     }
     $selection.endKey(6) | Out-Null
     $selection.TypeParagraph()
-    Write-Host " "
+    Write-Host ' '
 }
 
-Function Add-AllAnalyticRules ($analyticRules, $selection) {
-    $selection.Style = "Heading 1"
-    $selection.TypeText("Analytic Rules")
+Function Add-AllAnalyticRules ($analyticRules, $selection)
+{
+    $selection.Style = 'Heading 1'
+    $selection.TypeText('Analytic Rules')
     $selection.TypeParagraph()
 
-    Write-Host "Analytic Rules: " -NoNewline
+    Write-Host 'Analytic Rules: ' -NoNewline
 
     #$url = $baseUrl + "alertRules" + $apiVersion
     #$analyticRules = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
 
     $Table = $doc.Tables.add($selection.Range, $analyticRules.count + 1, 6)
     $Table.cell(1, 1).range.Bold = 1
-    $Table.cell(1, 1).range.text = "Severity"
+    $Table.cell(1, 1).range.text = 'Severity'
     $Table.cell(1, 2).range.Bold = 1
-    $Table.cell(1, 2).range.text = "Name"
+    $Table.cell(1, 2).range.text = 'Name'
     $Table.cell(1, 3).range.Bold = 1
-    $Table.cell(1, 3).range.text = "Rule Type"
+    $Table.cell(1, 3).range.text = 'Rule Type'
     $Table.cell(1, 4).range.Bold = 1
-    $Table.cell(1, 4).range.text = "Status"
+    $Table.cell(1, 4).range.text = 'Status'
     $Table.cell(1, 5).range.Bold = 1
-    $Table.cell(1, 5).range.text = "Tactics"
+    $Table.cell(1, 5).range.text = 'Tactics'
     $Table.cell(1, 6).range.Bold = 1
-    $Table.cell(1, 6).range.text = "Techniques"
+    $Table.cell(1, 6).range.text = 'Techniques'
     $count = 1
-    foreach ($analyticRule in $analyticRules) {
+    foreach ($analyticRule in $analyticRules)
+    {
         $count++
         $Table.cell($count, 1).range.Bold = 0
         $Table.cell($count, 1).range.text = $analyticRule.properties.Severity
@@ -426,62 +484,72 @@ Function Add-AllAnalyticRules ($analyticRules, $selection) {
         $Table.cell($count, 3).range.Bold = 0
         $Table.cell($count, 3).range.text = $analyticRule.kind
         $Table.cell($count, 4).range.Bold = 0
-        if ($analyticRule.properties.enabled -eq "True") {
-            $Table.cell($count, 4).range.text = "Enabled"
+        if ($analyticRule.properties.enabled -eq 'True')
+        {
+            $Table.cell($count, 4).range.text = 'Enabled'
         }
-        else {
-            $Table.cell($count, 4).range.text = "Disabled"
+        else
+        {
+            $Table.cell($count, 4).range.text = 'Disabled'
         }
-        $tactics = ""
-        foreach ($tactic in $analyticRule.properties.tactics) {
+        $tactics = ''
+        foreach ($tactic in $analyticRule.properties.tactics)
+        {
             $tactics = $tactics + $tactic + "`n"
         }
         $Table.cell($count, 5).range.Bold = 0
         $Table.cell($count, 5).range.text = $tactics
-        $techniques = ""
-        foreach ($technique in $analyticRule.properties.Techniques) {
+        $techniques = ''
+        foreach ($technique in $analyticRule.properties.Techniques)
+        {
             $techniques = $techniques + $technique + "`n"
         }
         $Table.cell($count, 6).range.Bold = 0
         $Table.cell($count, 6).range.text = $techniques
-        Write-Host "." -NoNewline
+        Write-Host '.' -NoNewline
     }
     $selection.endKey(6) | Out-Null
     $selection.TypeParagraph()
-    Write-Host " "
+    Write-Host ' '
 }
 
 #For some reason the SAP data connector will not work with this scenario.
-Function Add-AllDataConnectors ($solutions, $solutionTemplates, $selection) {
-    $selection.Style = "Heading 1"
-    $selection.TypeText("Data Connectors")
+Function Add-AllDataConnectors ($solutions, $solutionTemplates, $selection)
+{
+    $selection.Style = 'Heading 1'
+    $selection.TypeText('Data Connectors')
     $selection.TypeParagraph()
 
-    Write-Host "Data Connectors: " -NoNewline
+    Write-Host 'Data Connectors: ' -NoNewline
 
-    $url = $baseUrl + "dataConnectors" + $apiVersion
-    $dataConnectors = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
+    $url = $baseUrl + 'dataConnectors' + $apiVersion
+    $dataConnectors = (Invoke-RestMethod -Method 'Get' -Uri $url -Headers $authHeader ).value
     #Doing some translations
-    foreach ($dataConnector in $dataConnectors) {
-        if ($dataConnector.properties.connectorUiConfig.title -eq "Office 365") {
-            $dataConnector.properties.connectorUiConfig.title = "Microsoft 365 (formerly, Office 365)"
+    foreach ($dataConnector in $dataConnectors)
+    {
+        if ($dataConnector.properties.connectorUiConfig.title -eq 'Office 365')
+        {
+            $dataConnector.properties.connectorUiConfig.title = 'Microsoft 365 (formerly, Office 365)'
         }
-        if ($dataConnector.properties.connectorUiConfig.title -eq "SAP") {
-            $dataConnector.properties.connectorUiConfig.title = "Microsoft Sentinel for SAP"
+        if ($dataConnector.properties.connectorUiConfig.title -eq 'SAP')
+        {
+            $dataConnector.properties.connectorUiConfig.title = 'Microsoft Sentinel for SAP'
         }
 
     }
-    foreach ($dataConnector in $dataConnectors | Sort-Object { $_.properties.connectorUiConfig.title }) {
-        if ($null -ne $dataConnector.Properties.connectorUiConfig.title) {
-            $selection.Style = "Heading 2"
+    foreach ($dataConnector in $dataConnectors | Sort-Object { $_.properties.connectorUiConfig.title })
+    {
+        if ($null -ne $dataConnector.Properties.connectorUiConfig.title)
+        {
+            $selection.Style = 'Heading 2'
             $selection.TypeText($dataConnector.Properties.connectorUiConfig.title)
             # $connected = Is-Connected($dataConnector.properties.connectorUiConfig)
             # $selection.TypeText("`t`t" + $connected)
             $selection.TypeParagraph()
-            Write-Host "." -NoNewline
+            Write-Host '.' -NoNewline
         }
     }
-    Write-Host ""
+    Write-Host ''
 }
 
 <# Function Is-Connected($connectorUiConfig) {
@@ -496,9 +564,9 @@ Function Add-AllDataConnectors ($solutions, $solutionTemplates, $selection) {
             $query += "| summarize LastLogReceived = max(TimeGenerated)| project IsConnected = LastLogReceived > ago(30d)"
         }
         try {
-            $kqlQuery = Invoke-AzOperationalInsightsQuery -WorkspaceId $WorkspaceID.GUID -Query $query 
+            $kqlQuery = Invoke-AzOperationalInsightsQuery -WorkspaceId $WorkspaceID.GUID -Query $query
         }
-        catch 
+        catch
         {}
         if ($kqlQuery.Results.IsConnected -eq "true") {
             $isConnected = $true
@@ -508,213 +576,234 @@ Function Add-AllDataConnectors ($solutions, $solutionTemplates, $selection) {
     return $isConnected
 } #>
 
-Function Add-AllRepositories ($selection) {
-    $url = $baseUrl + "sourcecontrols" + $apiVersion
-    $repos = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
-    $selection.Style = "Heading 1"
-    $selection.TypeText("Repositories")
+Function Add-AllRepositories ($selection)
+{
+    $url = $baseUrl + 'sourcecontrols' + $apiVersion
+    $repos = (Invoke-RestMethod -Method 'Get' -Uri $url -Headers $authHeader ).value
+    $selection.Style = 'Heading 1'
+    $selection.TypeText('Repositories')
     $selection.TypeParagraph()
 
-    Write-Host "Repositories: " -NoNewline
+    Write-Host 'Repositories: ' -NoNewline
 
-    foreach ($repo in $repos) {
-        $selection.Style = "Heading 2"
+    foreach ($repo in $repos)
+    {
+        $selection.Style = 'Heading 2'
         $selection.TypeText($repo.properties.displayName)
         $selection.TypeParagraph()
         $selection.Font.Bold = $true
-        $selection.TypeText("Description: ");
+        $selection.TypeText('Description: ')
         $selection.Font.Bold = $false
         $selection.TypeText($repo.properties.description)
         $selection.TypeParagraph()
         $selection.Font.Bold = $true
-        $selection.TypeText("Source Control: ");
+        $selection.TypeText('Source Control: ')
         $selection.Font.Bold = $false
         $selection.TypeText($repo.properties.repoType)
         $selection.TypeParagraph()
         $selection.Font.Bold = $true
-        $selection.TypeText("Repository URL: ");
+        $selection.TypeText('Repository URL: ')
         $selection.Font.Bold = $false
         $selection.TypeText($repo.properties.repository.url)
         $selection.TypeParagraph()
         $selection.Font.Bold = $true
-        $selection.TypeText("Content Types: ")
+        $selection.TypeText('Content Types: ')
         $selection.Font.Bold = $false
         $selection.TypeParagraph()
-        foreach ($type in $repo.properties.contentTypes) {
+        foreach ($type in $repo.properties.contentTypes)
+        {
             $selection.TypeText("`t" + $type)
             $selection.TypeParagraph()
         }
         $selection.TypeParagraph()
-        Write-Host "." -NoNewline
+        Write-Host '.' -NoNewline
     }
-    Write-Host " "
+    Write-Host ' '
 }
 
-Function Add-AllHunts($selection) {
-    $url = $baseUrl + "hunts" + $apiVersion
-    $hunts = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
-    $selection.Style = "Heading 1"
-    $selection.TypeText("Hunts")
+Function Add-AllHunts($selection)
+{
+    $url = $baseUrl + 'hunts' + $apiVersion
+    $hunts = (Invoke-RestMethod -Method 'Get' -Uri $url -Headers $authHeader ).value
+    $selection.Style = 'Heading 1'
+    $selection.TypeText('Hunts')
     $selection.TypeParagraph()
 
-    Write-Host "Hunts: " -NoNewline
+    Write-Host 'Hunts: ' -NoNewline
 
-    foreach ($hunt in $hunts | Sort-Object { $_.properties.displayName }) {
-        $selection.Style = "Heading 2"
+    foreach ($hunt in $hunts | Sort-Object { $_.properties.displayName })
+    {
+        $selection.Style = 'Heading 2'
         $selection.TypeText($hunt.properties.displayName)
         $selection.TypeParagraph()
         $selection.TypeText($hunt.properties.description)
         $selection.TypeParagraph()
-        $selection.TypeText("Status: " + $hunt.properties.status);
-        $selection.TypeText("`tHypothesis: " + $hunt.properties.hypothesisStatus);
+        $selection.TypeText('Status: ' + $hunt.properties.status)
+        $selection.TypeText("`tHypothesis: " + $hunt.properties.hypothesisStatus)
         #$selection.TypeParagraph()
-        if ($null -ne $hunt.properties.owner.assignedTo) {
-            $selection.TypeText("`tAssigned To: " + $hunt.properties.owner.assignedTo);
+        if ($null -ne $hunt.properties.owner.assignedTo)
+        {
+            $selection.TypeText("`tAssigned To: " + $hunt.properties.owner.assignedTo)
         }
-        else {
-            $selection.TypeText("`tAssigned To: <unassigned>");
+        else
+        {
+            $selection.TypeText("`tAssigned To: <unassigned>")
         }
         $selection.TypeParagraph()
-        Write-Host "." -NoNewline
+        Write-Host '.' -NoNewline
     }
-    Write-Host ""
+    Write-Host ''
 }
-Function Add-TitlePage ($selection) {
+Function Add-TitlePage ($selection)
+{
     #Title Page
-    $selection.Style = "Title"
+    $selection.Style = 'Title'
     $selection.ParagraphFormat.Alignment = 1  #Center
-    $selection.TypeText("Microsoft Sentinel Documentation")   #Add the text
+    $selection.TypeText('Microsoft Sentinel Documentation')   #Add the text
     $selection.TypeParagraph()                                          #create a new paragraph
     $selection.TypeParagraph()
-    $selection.Style = "Normal"
+    $selection.Style = 'Normal'
     $selection.ParagraphFormat.Alignment = 1  #Center
     $text = Get-Date
-    $selection.TypeText("Created: " + $text)
+    $selection.TypeText('Created: ' + $text)
     $selection.TypeParagraph()
-    $selection.TypeParagraph()     
-    $selection.TypeText("Resource Group: " + $ResourceGroupName)   
     $selection.TypeParagraph()
-    $selection.TypeParagraph()     
-    $selection.TypeText("Workspace Name: " + $WorkSpaceName)
+    $selection.TypeText('Resource Group: ' + $ResourceGroupName)
+    $selection.TypeParagraph()
+    $selection.TypeParagraph()
+    $selection.TypeText('Workspace Name: ' + $WorkSpaceName)
 
     $Table = $doc.Tables.add($selection.Range, 1, 1)
     $Table.cell(1, 1).range.Bold = 1
-    $Table.cell(1, 1).range.text = ""
+    $Table.cell(1, 1).range.text = ''
     $selection.endKey(6) | Out-Null
     $selection.TypeParagraph()
 }
 
-Function Add-AllWorkbooks ($solutions, $solutionTemplates, $metadata, $selection) {
-    $selection.Style = "Heading 1"
-    $selection.TypeText("Custom Workbooks")
+Function Add-AllWorkbooks ($solutions, $solutionTemplates, $metadata, $selection)
+{
+    $selection.Style = 'Heading 1'
+    $selection.TypeText('Custom Workbooks')
     $selection.TypeParagraph()
 
-    Write-Host "Custom Workbooks: " -NoNewline
+    Write-Host 'Custom Workbooks: ' -NoNewline
 
     #Show "MyWorkbooks"
     $url = "https://management.azure.com/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName/providers/Microsoft.Insights/workbooks?api-version=2018-06-17-preview&canFetchContent=false&%24filter=sourceId%20eq%20'%2Fsubscriptions%2F$SubscriptionId%2Fresourcegroups%2F$ResourceGroupName%2Fproviders%2Fmicrosoft.operationalinsights%2Fworkspaces%2F$WorkspaceName'&category=sentinel"
-    $customWorkbooks = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
-   
+    $customWorkbooks = (Invoke-RestMethod -Method 'Get' -Uri $url -Headers $authHeader ).value
+
     $Table = $doc.Tables.add($selection.Range, $customWorkbooks.count + 1, 3)
     $Table.cell(1, 1).range.Bold = 1
-    $Table.cell(1, 1).range.text = "Name"
+    $Table.cell(1, 1).range.text = 'Name'
     $Table.cell(1, 2).range.Bold = 1
-    $Table.cell(1, 2).range.text = "Content Source"
+    $Table.cell(1, 2).range.text = 'Content Source'
     $Table.cell(1, 3).range.Bold = 1
-    $Table.cell(1, 3).range.text = "Content Name"
+    $Table.cell(1, 3).range.text = 'Content Name'
     $count = 1
-    foreach ($workbook in $customWorkbooks | Sort-Object { $_.properties.displayName }) {
+    foreach ($workbook in $customWorkbooks | Sort-Object { $_.properties.displayName })
+    {
         $count += 1
         $Table.Cell($count, 1).range.text = $workbook.properties.displayName
-        $foundTemplate = $metadata | Where-Object { $_.name -eq "workbook-" + $workbook.name }
-        if ($null -ne $foundTemplate) {
-            $Table.Cell($count, 2).range.text = "ContentHub"
+        $foundTemplate = $metadata | Where-Object { $_.name -eq 'workbook-' + $workbook.name }
+        if ($null -ne $foundTemplate)
+        {
+            $Table.Cell($count, 2).range.text = 'ContentHub'
             $Table.Cell($count, 3).range.text = $foundTemplate.properties.source.name
         }
-        else {
-            $Table.Cell($count, 2).range.text = "Custom"
-            $Table.Cell($count, 3).range.text = "--"
+        else
+        {
+            $Table.Cell($count, 2).range.text = 'Custom'
+            $Table.Cell($count, 3).range.text = '--'
         }
         $selection.TypeParagraph()
-        Write-Host "." -NoNewline
+        Write-Host '.' -NoNewline
     }
     $selection.endKey(6) | Out-Null
     $selection.TypeParagraph()
 
-    $selection.Style = "Heading 1"
-    $selection.TypeText("Workbook Templates")
+    $selection.Style = 'Heading 1'
+    $selection.TypeText('Workbook Templates')
     $selection.TypeParagraph()
-    $selection.TypeText(" ")
+    $selection.TypeText(' ')
     $selection.TypeParagraph()
     $sortedTemplates = @()
 
-    Write-Host " " 
-    Write-Host "Workbook Templates: " -NoNewline
+    Write-Host ' '
+    Write-Host 'Workbook Templates: ' -NoNewline
 
 
     #Show Templates
     #Filter to get only the workbook tempalates
-    $workbookTemplates = $solutionTemplates | Where-Object { $_.properties.contentKind -eq "Workbook" }
+    $workbookTemplates = $solutionTemplates | Where-Object { $_.properties.contentKind -eq 'Workbook' }
 
     #For all the installed oslutions, see if any of the solutions template's contentId matches the workbook's packageId
-    #If so, add the information to an array so we can display the entries alphabetically 
-    foreach ($solution in $solutions) {
+    #If so, add the information to an array so we can display the entries alphabetically
+    foreach ($solution in $solutions)
+    {
         $foundTemplates = $workbookTemplates | Where-Object { $_.properties.packageId -eq $solution.properties.contentId }
-        foreach ($foundTemplate in $foundTemplates) {
+        foreach ($foundTemplate in $foundTemplates)
+        {
             $sortedTemplates += $foundTemplate.properties.displayName
         }
     }
 
     $Table = $doc.Tables.add($selection.Range, $sortedTemplates.count + 1, 2)
     $Table.cell(1, 1).range.Bold = 1
-    $Table.cell(1, 1).range.text = "Name"
+    $Table.cell(1, 1).range.text = 'Name'
     $Table.cell(1, 2).range.Bold = 1
-    $Table.cell(1, 2).range.text = "Content Source"
+    $Table.cell(1, 2).range.text = 'Content Source'
     $count = 1
 
     #Go through all the workbook templates in alphabetical order
-    foreach ($singleTemplate in $sortedTemplates | Sort-Object) {
+    foreach ($singleTemplate in $sortedTemplates | Sort-Object)
+    {
         $count++
         $foundTemplate = $solutionTemplates | Where-Object { $_.properties.displayName -eq $singleTemplate }
-        if ($foundTemplate.properties.displayName.count -gt 1) {
+        if ($foundTemplate.properties.displayName.count -gt 1)
+        {
             $Table.Cell($count, 1).range.text = $foundTemplate.properties.displayName[0]
         }
-        else {
+        else
+        {
             $Table.Cell($count, 1).range.text = $foundTemplate.properties.displayName
         }
         #See if there is a solution that matches the workbook (there should be)
         $foundSolution = $solutions | Where-Object { $_.properties.displayName -eq $foundTemplate.properties.source.name }
-        if ($null -ne $foundSolution) {
+        if ($null -ne $foundSolution)
+        {
             $Table.Cell($count, 2).range.text = $foundSolution.properties.displayName
         }
-        else {
-            $Table.Cell($count, 2).range.text = "Standalone"
+        else
+        {
+            $Table.Cell($count, 2).range.text = 'Standalone'
         }
-        Write-Host "." -NoNewline
+        Write-Host '.' -NoNewline
     }
     $selection.endKey(6) | Out-Null
     $selection.TypeParagraph()
-    Write-Host ""
+    Write-Host ''
 }
 
-Function Add-AllSolutions($solutions, $installedTemplates, $selection) {
-    $selection.Style = "Heading 1"
-    $selection.TypeText("Installed Solutions")
+Function Add-AllSolutions($solutions, $installedTemplates, $selection)
+{
+    $selection.Style = 'Heading 1'
+    $selection.TypeText('Installed Solutions')
     $selection.TypeParagraph()
-    $selection.TypeText(" ")
+    $selection.TypeText(' ')
     $selection.TypeParagraph()
 
-    Write-Host "Solutions: " -NoNewline
-        
+    Write-Host 'Solutions: ' -NoNewline
+
     #Just used for testing and to show how many solutions we have worked on
     $count = 1
     #Go through and get each solution alphabetically
-    foreach ($solution in $solutions | Sort-Object { $_.properties.displayName }) {
+    foreach ($solution in $solutions | Sort-Object { $_.properties.displayName })
+    {
         # if ($count -le 70) {
         #Write-Host $count  $solution.properties.displayName
-        Write-Host "." -NoNewline
+        Write-Host '.' -NoNewline
         Add-SingleSolution $solution $installedTemplates $selection     #Load one solution
-        $selection.TypeText(" ")
+        $selection.TypeText(' ')
         $selection.TypeParagraph()
         #$selection.InsertBreak(7)   #page break
         $count = $count + 1
@@ -723,13 +812,15 @@ Function Add-AllSolutions($solutions, $installedTemplates, $selection) {
         break;
     }  #>
     }
-    Write-Host ""
+    Write-Host ''
 }
 
 #Work with a single solutions
-Function Add-SingleSolution ($solution, $installedTemplates, $selection) {
+Function Add-SingleSolution ($solution, $installedTemplates, $selection)
+{
 
-    try {
+    try
+    {
         #We need to load the solution's template information, which is stored in a separate file.  Note that
         #some solutions have multiple plans associated with them and we will only work with the first one.
         # $uri = $baseUrl + "contentPackages/" + $solution.contentId + $apiVersion
@@ -737,30 +828,32 @@ Function Add-SingleSolution ($solution, $installedTemplates, $selection) {
         #Load the solution's data
 
         #Output the Solution information into the Word Document
-        $selection.Style = "Heading 2"
+        $selection.Style = 'Heading 2'
         $selection.TypeText($solution.properties.displayName)
         $selection.TypeParagraph()
 
         $selection.Font.Bold = $true
-        $selection.TypeText("Version: ");
+        $selection.TypeText('Version: ')
         $selection.Font.Bold = $false
-        $selection.TypeText($solution.properties.installedVersion);
+        $selection.TypeText($solution.properties.installedVersion)
         $selection.TypeParagraph()
         $selection.Font.Bold = $true
-        $selection.TypeText("Type: ");
+        $selection.TypeText('Type: ')
         $selection.Font.Bold = $false
-        $selection.TypeText($solution.properties.contentKind);
+        $selection.TypeText($solution.properties.contentKind)
         $selection.TypeParagraph()
         #We are using the description rather than the Htmldescription since the Htmldescription can contain HTML formatting that
         #I cannot determine who to translate into what word can understand
         $selection.Font.Bold = $true
-        $selection.TypeText("Short Description: ");
+        $selection.TypeText('Short Description: ')
         $selection.Font.Bold = $false
-        if ($null -eq $solution.properties.description) {
-            $selection.TypeText("<None provided>");
+        if ($null -eq $solution.properties.description)
+        {
+            $selection.TypeText('<None provided>')
         }
-        else {
-            $selection.TypeText($solution.properties.description);
+        else
+        {
+            $selection.TypeText($solution.properties.description)
         }
         $selection.TypeParagraph()
 
@@ -771,115 +864,164 @@ Function Add-SingleSolution ($solution, $installedTemplates, $selection) {
         $azureFunctions = 0
         $playBooks = 0
         $parsers = 0
-    
-        if ($solution.properties.contentKind -eq "StandAlone") {
-            switch ($solution.properties.dependencies.criteria.kind) {
-                "DataConnector" { $dataConnectors++ }
-                "Workbook" { $workbooks++ }
-                "AnalyticsRule" { $ruleTemplates++ }
-                "HuntingQuery" { $huntingQueries++ }
-                "AzureFunction" { $azureFunctions++ }
-                "Playbook" { $playBooks++ }
-                "Parser" { $parsers++ }
+
+        if ($solution.properties.contentKind -eq 'StandAlone')
+        {
+            switch ($solution.properties.dependencies.criteria.kind)
+            {
+                'DataConnector'
+                {
+                    $dataConnectors++
+                }
+                'Workbook'
+                {
+                    $workbooks++
+                }
+                'AnalyticsRule'
+                {
+                    $ruleTemplates++
+                }
+                'HuntingQuery'
+                {
+                    $huntingQueries++
+                }
+                'AzureFunction'
+                {
+                    $azureFunctions++
+                }
+                'Playbook'
+                {
+                    $playBooks++
+                }
+                'Parser'
+                {
+                    $parsers++
+                }
             }
         }
-        else {
+        else
+        {
             $contentId = $solution.properties.contentId
             #try to load using the new way.
-            $url = $baseUrl + "contentTemplates" + $apiVersion
+            $url = $baseUrl + 'contentTemplates' + $apiVersion
             $url += "&%24filter=(properties%2FpackageId%20eq%20'$contentId')%20and%20" +
             "(properties%2FcontentKind%20eq%20'AnalyticsRule'%20or%20properties%2FcontentKind%20eq%20'DataConnector'%20or%20properties" +
             "%2FcontentKind%20eq%20'HuntingQuery'%20or%20properties%2FcontentKind%20eq%20'Playbook'%20or%20properties%2FcontentKind" +
             "%20eq%20'Workbook'%20or%20properties%2FcontentKind%20eq%20'Parser')"
-            $singleSolutionTemplates = (Invoke-RestMethod -Method "Get" -Uri $url -Headers $authHeader ).value
-            if ("" -eq $singleSolutionTemplates) {
+            $singleSolutionTemplates = (Invoke-RestMethod -Method 'Get' -Uri $url -Headers $authHeader ).value
+            if ('' -eq $singleSolutionTemplates)
+            {
                 #This solution was installed before the switch to solutions so we need a different way to load the data
                 $body = @{
-                    "subscriptions" = @(
+                    'subscriptions' = @(
                         "$SubscriptionId"
                     )
-                    "query"         = "Resources | where type =~ 'Microsoft.Resources/templateSpecs/versions' " +
+                    'query'         = "Resources | where type =~ 'Microsoft.Resources/templateSpecs/versions' " +
                     "| where tags['hidden-sentinelWorkspaceId'] =~ '/subscriptions/$SubscriptionId/resourcegroups/$resourceGroupName/providers/microsoft.operationalinsights/workspaces/$workspaceName' " +
-                    "| extend version = name | extend parsed_version = parse_version(version)  " +
+                    '| extend version = name | extend parsed_version = parse_version(version)  ' +
                     "| extend content_kind = tags['hidden-sentinelContentType'] " +
-                    "| extend resources = parse_json(parse_json(parse_json(properties).template).resources)  " +
-                    "| extend metadata = parse_json(resources[array_length(resources)-1].properties) " +
-                    "| extend contentId=tostring(metadata.contentId) " +
+                    '| extend resources = parse_json(parse_json(parse_json(properties).template).resources)  ' +
+                    '| extend metadata = parse_json(resources[array_length(resources)-1].properties) ' +
+                    '| extend contentId=tostring(metadata.contentId) ' +
                     "| where metadata.source.sourceId == '$contentId'  " +
-                    "| extend resource = parse_json(resources[0].properties)  " +
+                    '| extend resource = parse_json(resources[0].properties)  ' +
                     "| extend displayName = case(content_kind == `"DataConnector`", resource.connectorUiConfig['title'], content_kind == `"Playbook`", properties['template']['metadata']['title'] , resource.displayName)  " +
                     "| where content_kind in ('Workbook', 'AnalyticsRule', 'DataConnector', 'Playbook', 'Parser', 'HuntingQuery')  " +
                     "| extend additional_data = case(content_kind == 'Parser', resource['functionAlias'], '')  " +
-                    "| summarize arg_max(id, parsed_version, version, displayName, content_kind, properties, additional_data) by contentId, tostring(content_kind) " +
-                    "| project id, contentId, version, displayName, content_kind, additional_data"
+                    '| summarize arg_max(id, parsed_version, version, displayName, content_kind, properties, additional_data) by contentId, tostring(content_kind) ' +
+                    '| project id, contentId, version, displayName, content_kind, additional_data'
                 }
-                $url = "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2019-04-01"
+                $url = 'https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2019-04-01'
                 $singleSolutionTemplates = Invoke-RestMethod -Uri $url -Method POST -Headers $authHeader -Body ($body | ConvertTo-Json -EnumsAsStrings -Depth 50)
-                foreach ($row in $singleSolutionTemplates.data.rows) {
-                    switch ($row[4]) {
-                        "DataConnector" { $dataConnectors++ }
-                        "Workbook" { $workbooks++ }
-                        "AnalyticsRule" { $ruleTemplates++ }
-                        "HuntingQuery" { $huntingQueries++ }
-                        "AzureFunction" { $azureFunctions++ }
-                        "Playbook" { $playBooks++ }
-                        "Parser" { $parsers++ }
+                foreach ($row in $singleSolutionTemplates.data.rows)
+                {
+                    switch ($row[4])
+                    {
+                        'DataConnector'
+                        {
+                            $dataConnectors++
+                        }
+                        'Workbook'
+                        {
+                            $workbooks++
+                        }
+                        'AnalyticsRule'
+                        {
+                            $ruleTemplates++
+                        }
+                        'HuntingQuery'
+                        {
+                            $huntingQueries++
+                        }
+                        'AzureFunction'
+                        {
+                            $azureFunctions++
+                        }
+                        'Playbook'
+                        {
+                            $playBooks++
+                        }
+                        'Parser'
+                        {
+                            $parsers++
+                        }
                     }
                 }
             }
-            else {
-                $dataConnectors = ($singleSolutionTemplates | Where-Object { $_.properties.contentKind -eq "DataConnector" }).count
-                $workbooks = ($singleSolutionTemplates | Where-Object { $_.properties.contentKind -eq "Workbook" }).count
-                $ruleTemplates = ($singleSolutionTemplates | Where-Object { $_.properties.contentKind -eq "AnalyticsRule" }).count
-                $huntingQueries = ($singleSolutionTemplates | Where-Object { $_.properties.contentKind -eq "HuntingQuery" }).count
-                $azureFunctions = ($singleSolutionTemplates | Where-Object { $_.properties.contentKind -eq "AzureFunction" }).count
-                $playBooks = ($singleSolutionTemplates | Where-Object { $_.properties.contentKind -eq "Playbook" }).count
-                $parsers = ($singleSolutionTemplates | Where-Object { $_.properties.contentKind -eq "Parser" }).count
+            else
+            {
+                $dataConnectors = ($singleSolutionTemplates | Where-Object { $_.properties.contentKind -eq 'DataConnector' }).count
+                $workbooks = ($singleSolutionTemplates | Where-Object { $_.properties.contentKind -eq 'Workbook' }).count
+                $ruleTemplates = ($singleSolutionTemplates | Where-Object { $_.properties.contentKind -eq 'AnalyticsRule' }).count
+                $huntingQueries = ($singleSolutionTemplates | Where-Object { $_.properties.contentKind -eq 'HuntingQuery' }).count
+                $azureFunctions = ($singleSolutionTemplates | Where-Object { $_.properties.contentKind -eq 'AzureFunction' }).count
+                $playBooks = ($singleSolutionTemplates | Where-Object { $_.properties.contentKind -eq 'Playbook' }).count
+                $parsers = ($singleSolutionTemplates | Where-Object { $_.properties.contentKind -eq 'Parser' }).count
             }
         }
         #Output the summary line to the word document.  I know this is in a lot of solution's descriptions already
         #but it is in HTML and I cannot figure out how to easily translate it to something Word can understand.
         $selection.Font.Bold = $true
-        $selection.TypeText("Data Connectors: ");
+        $selection.TypeText('Data Connectors: ')
         $selection.Font.Bold = $false
-        $selection.TypeText($dataConnectors);
+        $selection.TypeText($dataConnectors)
         $selection.Font.Bold = $true
-        $selection.TypeText(", Workbooks: ");
+        $selection.TypeText(', Workbooks: ')
         $selection.Font.Bold = $false
-        $selection.TypeText($workbooks);
+        $selection.TypeText($workbooks)
         $selection.Font.Bold = $true
-        $selection.TypeText(", Analytic Rules: ");
+        $selection.TypeText(', Analytic Rules: ')
         $selection.Font.Bold = $false
-        $selection.TypeText($ruleTemplates);
+        $selection.TypeText($ruleTemplates)
         $selection.Font.Bold = $true
-        $selection.TypeText(", Hunting Queries: ");
+        $selection.TypeText(', Hunting Queries: ')
         $selection.Font.Bold = $false
-        $selection.TypeText($huntingQueries);
+        $selection.TypeText($huntingQueries)
         $selection.Font.Bold = $true
-        $selection.TypeText(", Azure Functions: ");
+        $selection.TypeText(', Azure Functions: ')
         $selection.Font.Bold = $false
-        $selection.TypeText($azureFunctions);
+        $selection.TypeText($azureFunctions)
         $selection.Font.Bold = $true
-        $selection.TypeText(", Playbooks: ");
+        $selection.TypeText(', Playbooks: ')
         $selection.Font.Bold = $false
-        $selection.TypeText($playBooks);
+        $selection.TypeText($playBooks)
         $selection.Font.Bold = $true
-        $selection.TypeText(", Parsers: ");
+        $selection.TypeText(', Parsers: ')
         $selection.Font.Bold = $false
-        $selection.TypeText($parsers);
+        $selection.TypeText($parsers)
         $selection.Font.Bold = $true
         $selection.TypeParagraph()
     }
-    catch {
+    catch
+    {
         $errorReturn = $_
         Write-Error $errorReturn
     }
 }
 
-
-
 #Execute the code
-if (! $Filename.EndsWith(".docx")) {
-    $FileName += ".docx"
+if (! $Filename.EndsWith('.docx'))
+{
+    $FileName += '.docx'
 }
 Export-AzSentinelConfigurationToWord  $FileName
